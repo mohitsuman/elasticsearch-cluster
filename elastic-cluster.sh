@@ -1,33 +1,42 @@
 #!/bin/sh
 # 
 # Author: Mohit Suman, 2015
-# elasticsearch cluster node re-balancing script
+# Elasticsearch cluster node re-balancing script
 #
 # chkconfig:   2345 80 20
-# description: Starts and stops a single elasticsearch instance on this system
+# description: Perform cluster rebalancing and shard allocations when a node goes down due to maintainance, or elasticearch upgrade on the node.
 #
 
-CLUSTER="http://10.3.8.247:9200"
-start() {
-    sudo systemctl restart elasticsearch
-    echo "waiting for node to rejoin"
-    sleep 2
-    echo "enabling allocations"
-    curl -s -XPUT /_cluster/settings -d '{ "transient" : { "cluster.routing.allocation.enable" : "all" } }'
-    echo "waiting for cluster state:green"
-    while [[ "green" != $(curl -s "${CLUSTER}/_cat/health?h=status" | tr -d '[:space:]') ]] ; do
-      sleep 8
-    done
+prog="elasticsearch"
 
+start() {
+    echo "$prog"
+    /etc/init.d/$prog start
+    echo "Waiting for node to rejoin"
+    sleep 2
+    echo "Enabling shard allocations"  
+    curl -s -XPUT /_cluster/settings -d '{ "transient" : { "cluster.routing.allocation.enable" : "all" } }'
+    echo "Waiting for cluster state to be ready to allocate primary shards"
+    curl -s -XGET 'http://localhost:9200/_cluster/health?wait_for_status=yellow'
+    echo "Cluster state is ready to allocate shards"
 }
 
 stop() {
-   echo "disabling allocations"
+   echo "Disabling shard allocations"
    curl -s -XPUT /_cluster/settings -d '{ "transient" : { "cluster.routing.allocation.enable" : "none" } }'
-   echo "Sending shutdown to node"
-   sudo systemctl stop elasticsearch
-#curl -s -XPOST /_cluster/nodes/_local/_shutdown
-   echo "Restart the service for the node to join"
+   echo "Sending shutdown signal to node"
+   /etc/init.d/$prog stop
+   #curl -s -XPOST /_cluster/nodes/_local/_shutdown
+   echo "Restart the $prog service at the node to join"
+}
+
+restart() {
+    stop
+    start
+}
+
+status(){
+    /etc/init.d/$prog status
 }
 
 case "$1" in
@@ -37,8 +46,17 @@ case "$1" in
     stop)
         $1
         ;;
+    status)
+        $1
+	;;
+    status)
+	$1
+	;;
+    restart)
+	$1
+	;;
 *)
         echo $"Usage: $0 {start|stop|status|restart}"
         exit 2
 esac
-exit $
+exit $?
